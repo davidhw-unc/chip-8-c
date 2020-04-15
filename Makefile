@@ -26,10 +26,10 @@ all_unit_tests 	     := ${unit_test_build_dir}/all_tests
 
 # C Compiler Configuration
 CC      			 := gcc # Using gcc compiler (alternative: clang)
-CFLAGS				 := -I${inc_dir} -g -Wall -std=c11 -O2
+CFLAGS				 := -I${inc_dir} -g -Wall -Wextra -std=c11 -O0
 # CFLAGS options:
 # -g 			Compile with debug symbols in binary files
-# -Wall 		Warnings: all - display every single warning
+# -Wall -Wextra	Warnings: all - display every single warning
 # -std=c11  	Use the C2011 feature set
 # -I${inc_dir}  Look in the include directory for include files
 # -O2			Highest level of optimization
