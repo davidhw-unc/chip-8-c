@@ -45,24 +45,25 @@ void Chip8_advance(Chip8Proc *self) {
     bool normInc = true, validInst = false;
 
     // Get instruction broken into nibbles
-    uint8_t in1 = self->ram[self->PC] >> 4,
-            in2 = self->ram[self->PC] & 0x0F,
-            in3 = self->ram[self->PC + 1] >> 4,
-            in4 = self->ram[self->PC + 1] & 0x0F;
+    uint8_t op12 = self->ram[self->PC], op34 = self->ram[self->PC + 1];
+    uint8_t op1 = op12 >> 4,
+            op2 = op12 & 0x0F,
+            op3 = op34 >> 4,
+            op4 = op34 & 0x0F;
 
     // Switch to identify opcodes
-    switch (in1) {
+    switch (op1) {
         case 0x0:
             // 0nnn: (IGNORED) Call RCA 1802 program at address nnn
-            if (self->ram[self->PC] != 0x00) {
+            if (op12 != 0x00) {
                 break;
             }
-            if (in3 == 0xC) { // 00Cn: Scroll display n lines down
+            if (op3 == 0xC) { // 00Cn: Scroll display n lines down
                 validInst = true;
                 // TODO 00Cn
                 break;
             }
-            switch (self->ram[self->PC + 1]) {
+            switch (op34) {
                 case 0xE0: // 00E0: Clear the screen
                     validInst = true;
                     for (int i = 0; i < 128; ++i) { self->screen[i] = 0; }
@@ -102,14 +103,14 @@ void Chip8_advance(Chip8Proc *self) {
             break;
         case 0x1: // 1nnn: Jump to address nnn
             validInst = true;
-            self->PC = in2 << 8 | self->ram[self->PC + 1];
+            self->PC = op2 << 8 | op34;
             normInc = false;
             break;
         case 0x2: // 2nnn: Call subroutine at address nnn
             validInst = true;
             if (self->SC++ < 15) {
                 self->stack[self->SC] = self->PC;
-                self->PC = in2 << 8 | self->ram[self->PC + 1];
+                self->PC = op2 << 8 | op34;
                 normInc = false;
             } else {
                 fprintf(stderr, "%03X - Aborting - Stack overflow\n", self->PC);
@@ -118,28 +119,34 @@ void Chip8_advance(Chip8Proc *self) {
             break;
         case 0x3: // 3xnn: Skip next instruction if Vx == nn
             validInst = true;
-            // TODO 3xnn
+            if (self->V[op2] == op34) {
+                self->PC += 2;
+            }
             break;
         case 0x4: // 4xnn: Skip next instruction if Vx != nn
             validInst = true;
-            // TODO 4xnn
+            if (self->V[op2] != op34) {
+                self->PC += 2;
+            }
             break;
         case 0x5:
-            if (in4 == 0) { // 5xy0: Skip next instruction if Vx == Vy
+            if (op4 == 0) { // 5xy0: Skip next instruction if Vx == Vy
                 validInst = true;
-                // TODO 5xy0
+                if (self->V[op2] == self->V[op3]) {
+                    self->PC += 2;
+                }
             }
             break;
         case 0x6: // 6xnn: Set Vx to nn
             validInst = true;
-            // TODO 6xnn
+            self->V[op2] = op34;
             break;
         case 0x7: // 7xnn: Add nn to Vx (no carry flag change)
             validInst = true;
             // TODO 7xnn
             break;
         case 0x8:
-            switch (in4) {
+            switch (op4) {
                 case 0x0: // 8xy0: Set Vx to Vy
                     validInst = true;
                     // TODO 8xy0
@@ -179,7 +186,7 @@ void Chip8_advance(Chip8Proc *self) {
             }
             break;
         case 0x9:
-            if (in4 == 0x0) { // 9xy0: Skip next instruction if Vx != Vy
+            if (op4 == 0x0) { // 9xy0: Skip next instruction if Vx != Vy
                 validInst = true;
                 // TODO 9xy0
             }
@@ -197,7 +204,7 @@ void Chip8_advance(Chip8Proc *self) {
             // TODO Cxnn
             break;
         case 0xD:
-            if (in4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
+            if (op4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
                 validInst = true;
                 // TODO Dxy0
             } else { // Dxyn: Draw sprite from ram(I) at (Vx, Vy), set Vf to collision
@@ -206,7 +213,7 @@ void Chip8_advance(Chip8Proc *self) {
             }
             break;
         case 0xE:
-            switch (self->ram[self->PC + 1]) {
+            switch (op34) {
                 case 0x9E: // Ex9E: Skip next instruction if key Vx is not pressed
                     validInst = true;
                     // TODO Ex9E
@@ -218,7 +225,7 @@ void Chip8_advance(Chip8Proc *self) {
             }
             break;
         case 0xF:
-            switch (self->ram[self->PC + 1]) {
+            switch (op34) {
                 case 0x07: // Fx07: Set Vx to D
                     validInst = true;
                     // TODO Fx07
@@ -268,7 +275,7 @@ void Chip8_advance(Chip8Proc *self) {
     // Throw error if invalid instruction
     if (!validInst) {
         fprintf(stderr, "%03X - Aborting - Invalid opcode %02X%02X\n",
-                self->PC, self->ram[self->PC], self->ram[self->PC + 1]);
+                self->PC, op12, op34);
         exit(EXIT_FAILURE);
     }
 
