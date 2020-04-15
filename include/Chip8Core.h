@@ -32,11 +32,11 @@ typedef struct Chip8Proc {
     uint8_t *ram;
 
     /*** Screen ***/
-    // Each uint64_t is one column
-    uint64_t *screen;
+    // 128x64 bool array stored in column-major order
+    bool *screen;
 
     /*** External Interaction ***/
-    void (*sendScreen)(uint32_t *screen, struct Chip8Proc *self);
+    void (*sendScreen)(bool *screen);
     void (*setSound)(bool isPlaying, struct Chip8Proc *self);
 
     /*** Mode Flag ***/
@@ -51,7 +51,7 @@ typedef struct Chip8Proc {
  */
 Chip8Proc Chip8_init(uint8_t *program,
         size_t progSize,
-        void (*sendScreen)(uint32_t *screen, Chip8Proc *self),
+        void (*sendScreen)(bool *screen),
         void (*setSound)(bool isPlaying, Chip8Proc *self),
         bool superMode);
 

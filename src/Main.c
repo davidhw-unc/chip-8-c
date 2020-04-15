@@ -4,6 +4,8 @@
 #include "Chip8Core.h"
 #include "Guards.h"
 
+void printScreen(bool *screen);
+
 int main() {
     uint8_t maze[38] = { // Maze (alt) [David Winter, 199x]
         0x60, 0x00, 0x61, 0x00, 0xA2, 0x22, 0xC2, 0x01,
@@ -20,7 +22,7 @@ int main() {
 
     Chip8Proc *proc = malloc(sizeof(Chip8Proc));
     OOM_GUARD(proc, __FILE__, __LINE__);
-    *proc = Chip8_init(testProg, 50, NULL, NULL, false);
+    *proc = Chip8_init(testProg, 50, printScreen, NULL, false);
 
     for (int i = 0; i < 10; ++i) {
         printf("PC: %03X\n", proc->PC);
@@ -32,4 +34,24 @@ int main() {
     free(proc);
     proc = NULL;
     return EXIT_SUCCESS;
+}
+
+void printScreen(bool *screen) {
+    for (int i = 0; i < 30; ++i) { putchar('\n'); }
+    putchar('+');
+    for (int i = 0; i < 128; ++i) { putchar('-'); }
+    putchar('+');
+    putchar('\n');
+    for (int c = 0; c < 128; ++c) {
+        putchar('|');
+        for (int r = 0; r < 64; ++r) {
+            putchar(screen[r * 128 + c] ? '#' : ' ');
+        }
+        putchar('|');
+        putchar('\n');
+    }
+    putchar('+');
+    for (int i = 0; i < 128; ++i) { putchar('-'); }
+    putchar('+');
+    putchar('\n');
 }

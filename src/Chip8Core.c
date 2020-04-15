@@ -6,7 +6,7 @@
 
 Chip8Proc Chip8_init(uint8_t *program,
         size_t progSize,
-        void (*sendScreen)(uint32_t *screen, Chip8Proc *self),
+        void (*sendScreen)(bool *screen),
         void (*setSound)(bool isPlaying, Chip8Proc *self),
         bool superMode) {
     // Init the new Chip8Proc
@@ -22,7 +22,7 @@ Chip8Proc Chip8_init(uint8_t *program,
     memcpy(proc.ram + 0x200, program, progSize);
     proc.PC = 0x200;
     // Init the screen buffer
-    proc.screen = calloc(128, sizeof(uint64_t));
+    proc.screen = calloc(128 * 64, sizeof(bool));
     OOM_GUARD(proc.screen, __FILE__, __LINE__);
     return proc;
 }
@@ -143,29 +143,31 @@ void Chip8_advance(Chip8Proc *self) {
             break;
         case 0x7: // 7xnn: Add nn to Vx (no carry flag change)
             validInst = true;
-            // TODO 7xnn
+            self->V[op2] += op34;
             break;
         case 0x8:
             switch (op4) {
                 case 0x0: // 8xy0: Set Vx to Vy
                     validInst = true;
-                    // TODO 8xy0
+                    self->V[op2] = self->V[op3];
                     break;
                 case 0x1: // 8xy1: Set Vx to Vx | Vy
                     validInst = true;
-                    // TODO 8xy1
+                    self->V[op2] |= self->V[op3];
                     break;
                 case 0x2: // 8xy2: Set Vx to Vx & Vy
                     validInst = true;
-                    // TODO 8xy2
+                    self->V[op2] &= self->V[op3];
                     break;
                 case 0x3: // 8xy3: Set Vx to Vx ^ Vy
                     validInst = true;
-                    // TODO 8xy3
+                    self->V[op2] ^= self->V[op3];
                     break;
                 case 0x4: // 8xy4: Set Vx to Vx + Vy, Vf to carry
                     validInst = true;
-                    // TODO 8xy4
+                    int sum = self->V[op2] + self->V[op3];
+                    self->V[0xF] = sum >= 255;
+                    self->V[op2] = sum;
                     break;
                 case 0x5: // 8xy5: Set Vx to Vx - Vy, Vf to !borrow
                     validInst = true;
