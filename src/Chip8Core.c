@@ -72,7 +72,7 @@ void Chip8_advance(Chip8Proc *self) {
                     if (self->SC >= 0) {
                         self->PC = self->stack[self->SC--];
                     } else {
-                        fprintf(stderr, "%3X - Aborting - Attempted to "
+                        fprintf(stderr, "%03X - Aborting - Attempted to "
                                 "leave subroutine with empty stack\n",
                                 self->PC);
                         exit(EXIT_FAILURE);
@@ -92,20 +92,29 @@ void Chip8_advance(Chip8Proc *self) {
                     break;
                 case 0xFE: // 00FE: Switch to lores
                     validInst = true;
-                    // TODO 00FE
+                    self->largeScreen = true;
                     break;
                 case 0xFF: // 00FF: Switch to hires
                     validInst = true;
-                    // TODO 00FF
+                    self->largeScreen = false;
                     break;
             }
+            break;
         case 0x1: // 1nnn: Jump to address nnn
             validInst = true;
-            // TODO 1nnn
+            self->PC = in2 << 8 | self->ram[self->PC + 1];
+            normInc = false;
             break;
         case 0x2: // 2nnn: Call subroutine at address nnn
             validInst = true;
-            // TODO 2nnn
+            if (self->SC++ < 15) {
+                self->stack[self->SC] = self->PC;
+                self->PC = in2 << 8 | self->ram[self->PC + 1];
+                normInc = false;
+            } else {
+                fprintf(stderr, "%03X - Aborting - Stack overflow\n", self->PC);
+                exit(EXIT_FAILURE);
+            }
             break;
         case 0x3: // 3xnn: Skip next instruction if Vx == nn
             validInst = true;
@@ -258,7 +267,7 @@ void Chip8_advance(Chip8Proc *self) {
 
     // Throw error if invalid instruction
     if (!validInst) {
-        fprintf(stderr, "%3X - Aborting - Invalid opcode %2X%2X\n",
+        fprintf(stderr, "%03X - Aborting - Invalid opcode %02X%02X\n",
                 self->PC, self->ram[self->PC], self->ram[self->PC + 1]);
         exit(EXIT_FAILURE);
     }
