@@ -1,5 +1,6 @@
 #include <stdio.h>    
 #include <string.h>
+#include <time.h>
 
 #include "Chip8Core.h"
 #include "Guards.h"
@@ -32,6 +33,8 @@ Chip8Proc Chip8_init(uint8_t *program,
     // Init the screen buffer
     proc.screen = calloc(128 * 64, sizeof(bool));
     OOM_GUARD(proc.screen, __FILE__, __LINE__);
+    // Seed random number generator
+    srand((unsigned int) time(NULL));
     return proc;
 }
 
@@ -178,18 +181,22 @@ void Chip8_advance(Chip8Proc *self) {
                     break;
                 case 0x5: // 8xy5: Set Vx to Vx - Vy, Vf to !borrow
                     validInst = true;
-                    // TODO 8xy5
+                    int old = self->V[op2];
+                    self->V[op2] -= self->V[op3];
+                    self->V[0xF] = old >= self->V[op2];
                     break;
                 case 0x6: // 8xy6: Set Vx to (superMode ? Vx : Vy) >> 1, Vf to lost bit
-                    validInst = true;
+                    // validInst = true;
                     // TODO 8xy6
                     break;
                 case 0x7: // 8xy7: Set Vx to Vy - Vx, Vf to !borrow
                     validInst = true;
-                    // TODO 8xy7
+                    int prev = self->V[op3];
+                    self->V[op2] = self->V[op3] - self->V[op2];
+                    self->V[0xF] = prev >= self->V[op2];
                     break;
                 case 0xE: // 8xy6: Set Vx to (superMode ? Vx : Vy) << 1, Vf to lost bit
-                    validInst = true;
+                    // validInst = true;
                     // TODO 8xyE
                     break;
             }
@@ -197,20 +204,23 @@ void Chip8_advance(Chip8Proc *self) {
         case 0x9:
             if (op4 == 0x0) { // 9xy0: Skip next instruction if Vx != Vy
                 validInst = true;
-                // TODO 9xy0
+                if (self->V[op2] != self->V[op3]) {
+                    self->PC += 2;
+                }
             }
             break;
         case 0xA: // Annn: Set I to nnn
             validInst = true;
-            // TODO Annn
+            self->I = op2 << 8 | op34;
             break;
         case 0xB: // Bnnn: Set I to nnn + V0 (Super has a quirk, not implemented)
             validInst = true;
-            // TODO Bnnn
+            self->PC = (op2 << 8 | op34) + self->V[0x0];
+            normInc = false;
             break;
         case 0xC: // Cxnn: Set Vx to rand & nn
             validInst = true;
-            // TODO Cxnn
+            self->V[op2] = rand() & op34;
             break;
         case 0xD:
             if (op4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
