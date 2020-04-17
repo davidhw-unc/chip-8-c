@@ -46,8 +46,8 @@ typedef struct Chip8Proc {
 } Chip8Proc;
 
 /*
- * Create a new Chip8Proc, copy 4096 bytes from program into the processor's
- * memory, and store the provided funciton pointers for output use
+ * Create a new Chip8Proc, copy program into the processor's memory, and
+ * store the provided funciton pointers for output use
  */
 Chip8Proc Chip8_init(uint8_t *program,
         size_t progSize,

@@ -69,7 +69,7 @@ void Chip8_advance(Chip8Proc *self) {
                 break;
             }
             if (op3 == 0xC) { // 00Cn: Scroll display n lines down
-                validInst = true;
+                // validInst = true;
                 // TODO 00Cn
                 break;
             }
@@ -90,15 +90,15 @@ void Chip8_advance(Chip8Proc *self) {
                     }
                     break;
                 case 0xFB: // 00FB: Scroll 4 small pixels right
-                    validInst = true;
+                    // validInst = true;
                     // TODO 00FB
                     break;
                 case 0xFC: // 00FC: Scroll 4 small pixels left
-                    validInst = true;
+                    // validInst = true;
                     // TODO 00FC
                     break;
                 case 0xFD: // 00FD: Exit interpreter
-                    validInst = true;
+                    // validInst = true;
                     // TODO 00FD
                     break;
                 case 0xFE: // 00FE: Switch to lores
@@ -224,21 +224,21 @@ void Chip8_advance(Chip8Proc *self) {
             break;
         case 0xD:
             if (op4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
-                validInst = true;
+                // validInst = true;
                 // TODO Dxy0
             } else { // Dxyn: Draw sprite from ram(I) at (Vx, Vy), set Vf to collision
-                validInst = true;
+                // validInst = true;
                 // TODO Dxyn
             }
             break;
         case 0xE:
             switch (op34) {
                 case 0x9E: // Ex9E: Skip next instruction if key Vx is not pressed
-                    validInst = true;
+                    // validInst = true;
                     // TODO Ex9E
                     break;
                 case 0xA1: // ExA1: Skip next instruction if key Vx is pressed
-                    validInst = true;
+                    // validInst = true;
                     // TODO ExA1
                     break;
             }
@@ -247,23 +247,23 @@ void Chip8_advance(Chip8Proc *self) {
             switch (op34) {
                 case 0x07: // Fx07: Set Vx to D
                     validInst = true;
-                    // TODO Fx07
+                    self->V[op2] = self->D;
                     break;
                 case 0x0A: // Fx0A: Wait for keypress, then set Vx to key
-                    validInst = true;
+                    // validInst = true;
                     // TODO Fx0A
                     break;
                 case 0x15: // Fx15: Set D to Vx
                     validInst = true;
-                    // TODO Fx15
+                    self->D = self->V[op2];
                     break;
                 case 0x18: // Fx18: Set S to Vx, call setSound(true, self)
-                    validInst = true;
+                    // validInst = true;
                     // TODO Fx18
                     break;
                 case 0x1E: // Fx1E: Set I to I + Vx, Super has an (ignored) quirk
                     validInst = true;
-                    // TODO Fx1E
+                    self->I += self->V[op2];
                     break;
                 case 0x29: // Fx29: Point I to 5-wide sprite for the hex char in Vx
                     validInst = true;
@@ -273,17 +273,32 @@ void Chip8_advance(Chip8Proc *self) {
                     validInst = true;
                     self->I = FONT_10_START + 10 * op2;
                     break;
-                case 0x33: // Fx30: Set I, I+1, I+2 to the decimal digits of Vx
+                case 0x33: // Fx33: Set I, I+1, I+2 to the decimal digits of Vx
                     validInst = true;
-                    // TODO Fx33
+                    int val = self->V[op2];
+                    self->ram[self->I] = val / 100;
+                    val %= 100;
+                    self->ram[self->I + 1] = val / 10;
+                    val %= 10;
+                    self->ram[self->I + 2] = val;
                     break;
                 case 0x55: // Fx55: Store V0...Vx to ram starting at I
+                    // When not in superMode, I will be incremented
+                    // In superMode, I stays constant
                     validInst = true;
-                    // TODO Fx55
+                    for (int i = 0; i < op2; ++i) {
+                        self->ram[self->I + i] = self->V[i];
+                    }
+                    if (!self->superMode) { self->I += op2; }
                     break;
                 case 0x65: // Fx65: Read V0...Vx from ram starting at I
+                    // When not in superMode, I will be incremented
+                    // In superMode, I stays constant
                     validInst = true;
-                    // TODO Fx65
+                    for (int i = 0; i < op2; ++i) {
+                        self->V[i] = self->ram[self->I + i];
+                    }
+                    if (!self->superMode) { self->I += op2; }
                     break;
             }
             // Fx75: (IGNORED) Store V0...Vx to RPL user flags (x < 8, Super only)
