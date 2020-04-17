@@ -24,27 +24,16 @@ Chip8Proc Chip8_init(uint8_t *program,
         .superMode = superMode
     };
     // Init the proc's ram
-    proc.ram = calloc(4096, sizeof(uint16_t));
-    OOM_GUARD(proc.ram, __FILE__, __LINE__);
+    memset(proc.ram, 0, 4096);
     memcpy(proc.ram + FONT_5_START, font5, sizeof(font5));
     memcpy(proc.ram + FONT_10_START, font10, sizeof(font10));
     memcpy(proc.ram + PROG_START, program, progSize);
     proc.PC = 0x200;
     // Init the screen buffer
-    proc.screen = calloc(128 * 64, sizeof(bool));
-    OOM_GUARD(proc.screen, __FILE__, __LINE__);
+    memset(proc.screen, 0, 64 * 128);
     // Seed random number generator
     srand((unsigned int) time(NULL));
     return proc;
-}
-
-void Chip8_end(Chip8Proc *self) {
-    // Free ram
-    free(self->ram);
-    self->ram = NULL;
-    // Free screen
-    free(self->screen);
-    self->screen = NULL;
 }
 
 void Chip8_advance(Chip8Proc *self) {
@@ -76,7 +65,11 @@ void Chip8_advance(Chip8Proc *self) {
             switch (op34) {
                 case 0xE0: // 00E0: Clear the screen
                     validInst = true;
-                    for (int i = 0; i < 128; ++i) { self->screen[i] = 0; }
+                    for (int c = 0; c < 128; ++c) {
+                        for (int r = 0; r < 64; ++r) {
+                            self->screen[r * 128 + c] = false;
+                        }
+                    }
                     break;
                 case 0xEE: // 00EE: Return from subroutine
                     validInst = true;
@@ -213,7 +206,7 @@ void Chip8_advance(Chip8Proc *self) {
             validInst = true;
             self->I = op2 << 8 | op34;
             break;
-        case 0xB: // Bnnn: Set I to nnn + V0 (Super has a quirk, not implemented)
+        case 0xB: // Bnnn: Jump to nnn + V0 (Super has a quirk, not implemented)
             validInst = true;
             self->PC = (op2 << 8 | op34) + self->V[0x0];
             normInc = false;
@@ -224,12 +217,40 @@ void Chip8_advance(Chip8Proc *self) {
             break;
         case 0xD:
             if (op4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
+                // Does NOT replicate Super collision line count
                 // validInst = true;
                 // TODO Dxy0
-            } else { // Dxyn: Draw sprite from ram(I) at (Vx, Vy), set Vf to collision
-                // validInst = true;
-                // TODO Dxyn
+            } else { // Dxyn: Draw n-row sprite from ram(I) at (Vx, Vy)
+                // Vf is set to 1 if there is a collision, 0 otherwise
+                self->V[0xF] = false;
+                validInst = true;
+                int x0 = self->V[op2], y0 = self->V[op3];
+                for (uint8_t r = 0; r < op4; ++r) {
+                    uint8_t mask = 0x80, rowVal = self->ram[self->I + r];
+                    for (uint8_t c = 0; c < 8; ++c, mask >>= 1) {
+                        if (rowVal & mask) {
+                            if (self->largeScreen) {
+                                // Does NOT replicate Super collision line count
+                                // TODO draw in largeScreen mode
+                            } else {
+                                int row = 2 * (r + y0) % 64,
+                                    col = 2 * (c + x0) % 128;
+                                bool curState = self->screen[row * 128 + col];
+                                if (curState) {
+                                    // If pixel is already on, set flag for collision
+                                    self->V[0xF] = true;
+                                }
+                                self->screen[row * 128 + col] = !curState;
+                                self->screen[(row + 1) * 128 + col] = !curState;
+                                self->screen[row * 128 + col + 1] = !curState;
+                                self->screen[(row + 1) * 128 + col + 1] = !curState;
+                            }
+                        }
+                    }
+                }
             }
+            // Send new framebuffer
+            self->sendScreen(self->screen);
             break;
         case 0xE:
             switch (op34) {
@@ -267,11 +288,16 @@ void Chip8_advance(Chip8Proc *self) {
                     break;
                 case 0x29: // Fx29: Point I to 5-wide sprite for the hex char in Vx
                     validInst = true;
-                    self->I = FONT_5_START + 5 * op2;
+                    self->I = FONT_5_START + 5 * (self->V[op2] % 16);
                     break;
                 case 0x30: // Fx30: Point I to 10-wide sprite for the num char in Vx
                     validInst = true;
-                    self->I = FONT_10_START + 10 * op2;
+                    if (self->V[op2] % 16 > 0x9) {
+                        fprintf(stderr, "%03X - Aborting - Large sprites are only "
+                                "available for characters 0-9\n", self->PC);
+                        exit(EXIT_FAILURE);
+                    }
+                    self->I = FONT_10_START + 10 * (self->V[op2] % 16);
                     break;
                 case 0x33: // Fx33: Set I, I+1, I+2 to the decimal digits of Vx
                     validInst = true;

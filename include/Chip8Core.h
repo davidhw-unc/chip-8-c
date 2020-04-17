@@ -29,11 +29,11 @@ typedef struct Chip8Proc {
     uint16_t stack[16];
 
     /*** Memory ***/
-    uint8_t *ram;
+    uint8_t ram[4096];
 
     /*** Screen ***/
-    // 128x64 bool array stored in column-major order
-    bool *screen;
+    // 128x64 bool array (row-major)
+    bool screen[64 * 128];
 
     /*** External Interaction ***/
     void (*sendScreen)(bool *screen);
@@ -54,11 +54,6 @@ Chip8Proc Chip8_init(uint8_t *program,
         void (*sendScreen)(bool *screen),
         void (*setSound)(bool isPlaying, Chip8Proc *self),
         bool superMode);
-
-/*
- * Clean up an existing Chip8Proc
- */
-void Chip8_end(Chip8Proc *self);
 
 /*
  * Advance the Chip8 processor by one step.
