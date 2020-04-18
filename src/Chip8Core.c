@@ -179,8 +179,14 @@ void Chip8_advance(Chip8Proc *self) {
                     self->V[0xF] = old >= self->V[op2];
                     break;
                 case 0x6: // 8xy6: Set Vx to (superMode ? Vx : Vy) >> 1, Vf to lost bit
-                    // validInst = true;
-                    // TODO 8xy6
+                    validInst = true;
+                    if (self->superMode) {
+                        self->V[0xF] = self->V[op2] & 1;
+                        self->V[op2] >>= 1;
+                    } else {
+                        self->V[0xF] = self->V[op3] & 1;
+                        self->V[op2] = self->V[op3] >> 1;
+                    }
                     break;
                 case 0x7: // 8xy7: Set Vx to Vy - Vx, Vf to !borrow
                     validInst = true;
@@ -188,9 +194,15 @@ void Chip8_advance(Chip8Proc *self) {
                     self->V[op2] = self->V[op3] - self->V[op2];
                     self->V[0xF] = prev >= self->V[op2];
                     break;
-                case 0xE: // 8xy6: Set Vx to (superMode ? Vx : Vy) << 1, Vf to lost bit
-                    // validInst = true;
-                    // TODO 8xyE
+                case 0xE: // 8xyE: Set Vx to (superMode ? Vx : Vy) << 1, Vf to lost bit
+                    validInst = true;
+                    if (self->superMode) {
+                        self->V[0xF] = self->V[op2] & 0x80;
+                        self->V[op2] <<= 1;
+                    } else {
+                        self->V[0xF] = self->V[op3] & 0x80;
+                        self->V[op2] = self->V[op3] << 1;
+                    }
                     break;
             }
             break;
