@@ -1,12 +1,19 @@
 #include <stdio.h>    
 #include <string.h>
+#include <time.h>
 
 #include "Chip8Core.h"
 #include "Guards.h"
 
+#define FONT_5_START  0x000
+#define FONT_10_START 0x080
+#define PROG_START    0x200
+
+static uint8_t font5[80], font10[100];
+
 Chip8Proc Chip8_init(uint8_t *program,
         size_t progSize,
-        void (*sendScreen)(uint32_t *screen, Chip8Proc *self),
+        void (*sendScreen)(bool *screen),
         void (*setSound)(bool isPlaying, Chip8Proc *self),
         bool superMode) {
     // Init the new Chip8Proc
@@ -17,26 +24,18 @@ Chip8Proc Chip8_init(uint8_t *program,
         .superMode = superMode
     };
     // Init the proc's ram
-    proc.ram = calloc(4096, sizeof(uint16_t));
-    OOM_GUARD(proc.ram, __FILE__, __LINE__);
-    memcpy(proc.ram + 0x200, program, progSize);
+    memset(proc.ram, 0, 4096);
+    memcpy(proc.ram + FONT_5_START, font5, sizeof(font5));
+    memcpy(proc.ram + FONT_10_START, font10, sizeof(font10));
+    memcpy(proc.ram + PROG_START, program, progSize);
     proc.PC = 0x200;
     // Init the screen buffer
-    proc.screen = calloc(128, sizeof(uint64_t));
-    OOM_GUARD(proc.screen, __FILE__, __LINE__);
+    memset(proc.screen, 0, 64 * 128);
+    // Seed random number generator
+    srand((unsigned int) time(NULL));
     return proc;
 }
 
-void Chip8_end(Chip8Proc *self) {
-    // Free ram
-    free(self->ram);
-    self->ram = NULL;
-    // Free screen
-    free(self->screen);
-    self->screen = NULL;
-}
-
-// Advance by one step
 void Chip8_advance(Chip8Proc *self) {
 
     // NOTE: see https://github.com/Chromatophore/HP48-Superchip for
@@ -45,210 +44,299 @@ void Chip8_advance(Chip8Proc *self) {
     bool normInc = true, validInst = false;
 
     // Get instruction broken into nibbles
-    uint8_t in1 = self->ram[self->PC] >> 4,
-            in2 = self->ram[self->PC] & 0x0F,
-            in3 = self->ram[self->PC + 1] >> 4,
-            in4 = self->ram[self->PC + 1] & 0x0F;
+    uint8_t op12 = self->ram[self->PC], op34 = self->ram[self->PC + 1];
+    uint8_t op1 = op12 >> 4,
+            op2 = op12 & 0x0F,
+            op3 = op34 >> 4,
+            op4 = op34 & 0x0F;
 
     // Switch to identify opcodes
-    switch (in1) {
+    switch (op1) {
         case 0x0:
             // 0nnn: (IGNORED) Call RCA 1802 program at address nnn
-            if (self->ram[self->PC] != 0x00) {
+            if (op12 != 0x00) {
                 break;
             }
-            if (in3 == 0xC) { // 00Cn: Scroll display n lines down
-                validInst = true;
+            if (op3 == 0xC) { // 00Cn: Scroll display n lines down
+                // validInst = true;
                 // TODO 00Cn
                 break;
             }
-            switch (self->ram[self->PC + 1]) {
+            switch (op34) {
                 case 0xE0: // 00E0: Clear the screen
                     validInst = true;
-                    for (int i = 0; i < 128; ++i) { self->screen[i] = 0; }
+                    for (int c = 0; c < 128; ++c) {
+                        for (int r = 0; r < 64; ++r) {
+                            self->screen[r * 128 + c] = false;
+                        }
+                    }
                     break;
                 case 0xEE: // 00EE: Return from subroutine
                     validInst = true;
                     if (self->SC >= 0) {
                         self->PC = self->stack[self->SC--];
                     } else {
-                        fprintf(stderr, "%3X - Aborting - Attempted to "
+                        fprintf(stderr, "%03X - Aborting - Attempted to "
                                 "leave subroutine with empty stack\n",
                                 self->PC);
                         exit(EXIT_FAILURE);
                     }
                     break;
                 case 0xFB: // 00FB: Scroll 4 small pixels right
-                    validInst = true;
+                    // validInst = true;
                     // TODO 00FB
                     break;
                 case 0xFC: // 00FC: Scroll 4 small pixels left
-                    validInst = true;
+                    // validInst = true;
                     // TODO 00FC
                     break;
                 case 0xFD: // 00FD: Exit interpreter
-                    validInst = true;
+                    // validInst = true;
                     // TODO 00FD
                     break;
                 case 0xFE: // 00FE: Switch to lores
                     validInst = true;
-                    // TODO 00FE
+                    self->largeScreen = true;
                     break;
                 case 0xFF: // 00FF: Switch to hires
                     validInst = true;
-                    // TODO 00FF
+                    self->largeScreen = false;
                     break;
             }
+            break;
         case 0x1: // 1nnn: Jump to address nnn
             validInst = true;
-            // TODO 1nnn
+            self->PC = op2 << 8 | op34;
+            normInc = false;
             break;
         case 0x2: // 2nnn: Call subroutine at address nnn
             validInst = true;
-            // TODO 2nnn
+            if (self->SC++ < 15) {
+                self->stack[self->SC] = self->PC;
+                self->PC = op2 << 8 | op34;
+                normInc = false;
+            } else {
+                fprintf(stderr, "%03X - Aborting - Stack overflow\n", self->PC);
+                exit(EXIT_FAILURE);
+            }
             break;
         case 0x3: // 3xnn: Skip next instruction if Vx == nn
             validInst = true;
-            // TODO 3xnn
+            if (self->V[op2] == op34) {
+                self->PC += 2;
+            }
             break;
         case 0x4: // 4xnn: Skip next instruction if Vx != nn
             validInst = true;
-            // TODO 4xnn
+            if (self->V[op2] != op34) {
+                self->PC += 2;
+            }
             break;
         case 0x5:
-            if (in4 == 0) { // 5xy0: Skip next instruction if Vx == Vy
+            if (op4 == 0) { // 5xy0: Skip next instruction if Vx == Vy
                 validInst = true;
-                // TODO 5xy0
+                if (self->V[op2] == self->V[op3]) {
+                    self->PC += 2;
+                }
             }
             break;
         case 0x6: // 6xnn: Set Vx to nn
             validInst = true;
-            // TODO 6xnn
+            self->V[op2] = op34;
             break;
         case 0x7: // 7xnn: Add nn to Vx (no carry flag change)
             validInst = true;
-            // TODO 7xnn
+            self->V[op2] += op34;
             break;
         case 0x8:
-            switch (in4) {
+            switch (op4) {
                 case 0x0: // 8xy0: Set Vx to Vy
                     validInst = true;
-                    // TODO 8xy0
+                    self->V[op2] = self->V[op3];
                     break;
                 case 0x1: // 8xy1: Set Vx to Vx | Vy
                     validInst = true;
-                    // TODO 8xy1
+                    self->V[op2] |= self->V[op3];
                     break;
                 case 0x2: // 8xy2: Set Vx to Vx & Vy
                     validInst = true;
-                    // TODO 8xy2
+                    self->V[op2] &= self->V[op3];
                     break;
                 case 0x3: // 8xy3: Set Vx to Vx ^ Vy
                     validInst = true;
-                    // TODO 8xy3
+                    self->V[op2] ^= self->V[op3];
                     break;
                 case 0x4: // 8xy4: Set Vx to Vx + Vy, Vf to carry
                     validInst = true;
-                    // TODO 8xy4
+                    int sum = self->V[op2] + self->V[op3];
+                    self->V[0xF] = sum >= 255;
+                    self->V[op2] = sum;
                     break;
                 case 0x5: // 8xy5: Set Vx to Vx - Vy, Vf to !borrow
                     validInst = true;
-                    // TODO 8xy5
+                    int old = self->V[op2];
+                    self->V[op2] -= self->V[op3];
+                    self->V[0xF] = old >= self->V[op2];
                     break;
                 case 0x6: // 8xy6: Set Vx to (superMode ? Vx : Vy) >> 1, Vf to lost bit
                     validInst = true;
-                    // TODO 8xy6
+                    if (self->superMode) {
+                        self->V[0xF] = self->V[op2] & 1;
+                        self->V[op2] >>= 1;
+                    } else {
+                        self->V[0xF] = self->V[op3] & 1;
+                        self->V[op2] = self->V[op3] >> 1;
+                    }
                     break;
                 case 0x7: // 8xy7: Set Vx to Vy - Vx, Vf to !borrow
                     validInst = true;
-                    // TODO 8xy7
+                    int prev = self->V[op3];
+                    self->V[op2] = self->V[op3] - self->V[op2];
+                    self->V[0xF] = prev >= self->V[op2];
                     break;
-                case 0xE: // 8xy6: Set Vx to (superMode ? Vx : Vy) << 1, Vf to lost bit
+                case 0xE: // 8xyE: Set Vx to (superMode ? Vx : Vy) << 1, Vf to lost bit
                     validInst = true;
-                    // TODO 8xyE
+                    if (self->superMode) {
+                        self->V[0xF] = self->V[op2] & 0x80;
+                        self->V[op2] <<= 1;
+                    } else {
+                        self->V[0xF] = self->V[op3] & 0x80;
+                        self->V[op2] = self->V[op3] << 1;
+                    }
                     break;
             }
             break;
         case 0x9:
-            if (in4 == 0x0) { // 9xy0: Skip next instruction if Vx != Vy
+            if (op4 == 0x0) { // 9xy0: Skip next instruction if Vx != Vy
                 validInst = true;
-                // TODO 9xy0
+                if (self->V[op2] != self->V[op3]) {
+                    self->PC += 2;
+                }
             }
             break;
         case 0xA: // Annn: Set I to nnn
             validInst = true;
-            // TODO Annn
+            self->I = op2 << 8 | op34;
             break;
-        case 0xB: // Bnnn: Set I to nnn + V0 (Super has a quirk, not implemented)
+        case 0xB: // Bnnn: Jump to nnn + V0 (Super has a quirk, not implemented)
             validInst = true;
-            // TODO Bnnn
+            self->PC = (op2 << 8 | op34) + self->V[0x0];
+            normInc = false;
             break;
         case 0xC: // Cxnn: Set Vx to rand & nn
             validInst = true;
-            // TODO Cxnn
+            self->V[op2] = rand() & op34;
             break;
         case 0xD:
-            if (in4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
-                validInst = true;
+            if (op4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
+                // Does NOT replicate Super collision line count
+                // validInst = true;
                 // TODO Dxy0
-            } else { // Dxyn: Draw sprite from ram(I) at (Vx, Vy), set Vf to collision
+            } else { // Dxyn: Draw n-row sprite from ram(I) at (Vx, Vy)
+                // Vf is set to 1 if there is a collision, 0 otherwise
+                self->V[0xF] = false;
                 validInst = true;
-                // TODO Dxyn
+                int x0 = self->V[op2], y0 = self->V[op3];
+                for (uint8_t r = 0; r < op4; ++r) {
+                    uint8_t mask = 0x80, rowVal = self->ram[self->I + r];
+                    for (uint8_t c = 0; c < 8; ++c, mask >>= 1) {
+                        if (rowVal & mask) {
+                            if (self->largeScreen) {
+                                // Does NOT replicate Super collision line count
+                                // TODO draw in largeScreen mode
+                            } else {
+                                int row = 2 * (r + y0) % 64,
+                                    col = 2 * (c + x0) % 128;
+                                bool curState = self->screen[row * 128 + col];
+                                if (curState) {
+                                    // If pixel is already on, set flag for collision
+                                    self->V[0xF] = true;
+                                }
+                                self->screen[row * 128 + col] = !curState;
+                                self->screen[(row + 1) * 128 + col] = !curState;
+                                self->screen[row * 128 + col + 1] = !curState;
+                                self->screen[(row + 1) * 128 + col + 1] = !curState;
+                            }
+                        }
+                    }
+                }
             }
+            // Send new framebuffer
+            self->sendScreen(self->screen);
             break;
         case 0xE:
-            switch (self->ram[self->PC + 1]) {
+            switch (op34) {
                 case 0x9E: // Ex9E: Skip next instruction if key Vx is not pressed
-                    validInst = true;
+                    // validInst = true;
                     // TODO Ex9E
                     break;
                 case 0xA1: // ExA1: Skip next instruction if key Vx is pressed
-                    validInst = true;
+                    // validInst = true;
                     // TODO ExA1
                     break;
             }
             break;
         case 0xF:
-            switch (self->ram[self->PC + 1]) {
+            switch (op34) {
                 case 0x07: // Fx07: Set Vx to D
                     validInst = true;
-                    // TODO Fx07
+                    self->V[op2] = self->D;
                     break;
                 case 0x0A: // Fx0A: Wait for keypress, then set Vx to key
-                    validInst = true;
+                    // validInst = true;
                     // TODO Fx0A
                     break;
                 case 0x15: // Fx15: Set D to Vx
                     validInst = true;
-                    // TODO Fx15
+                    self->D = self->V[op2];
                     break;
                 case 0x18: // Fx18: Set S to Vx, call setSound(true, self)
-                    validInst = true;
+                    // validInst = true;
                     // TODO Fx18
                     break;
                 case 0x1E: // Fx1E: Set I to I + Vx, Super has an (ignored) quirk
                     validInst = true;
-                    // TODO Fx1E
+                    self->I += self->V[op2];
                     break;
                 case 0x29: // Fx29: Point I to 5-wide sprite for the hex char in Vx
                     validInst = true;
-                    // TODO Fx29
+                    self->I = FONT_5_START + 5 * (self->V[op2] % 16);
                     break;
-                case 0x30: // Fx29: Point I to 10-wide sprite for the num char in Vx
+                case 0x30: // Fx30: Point I to 10-wide sprite for the num char in Vx
                     validInst = true;
-                    // TODO Fx30
+                    if (self->V[op2] % 16 > 0x9) {
+                        fprintf(stderr, "%03X - Aborting - Large sprites are only "
+                                "available for characters 0-9\n", self->PC);
+                        exit(EXIT_FAILURE);
+                    }
+                    self->I = FONT_10_START + 10 * (self->V[op2] % 16);
                     break;
-                case 0x33: // Fx30: Set I, I+1, I+2 to the decimal digits of Vx
+                case 0x33: // Fx33: Set I, I+1, I+2 to the decimal digits of Vx
                     validInst = true;
-                    // TODO Fx33
+                    int val = self->V[op2];
+                    self->ram[self->I] = val / 100;
+                    val %= 100;
+                    self->ram[self->I + 1] = val / 10;
+                    val %= 10;
+                    self->ram[self->I + 2] = val;
                     break;
                 case 0x55: // Fx55: Store V0...Vx to ram starting at I
+                    // When not in superMode, I will be incremented
+                    // In superMode, I stays constant
                     validInst = true;
-                    // TODO Fx55
+                    for (int i = 0; i < op2; ++i) {
+                        self->ram[self->I + i] = self->V[i];
+                    }
+                    if (!self->superMode) { self->I += op2; }
                     break;
                 case 0x65: // Fx65: Read V0...Vx from ram starting at I
+                    // When not in superMode, I will be incremented
+                    // In superMode, I stays constant
                     validInst = true;
-                    // TODO Fx65
+                    for (int i = 0; i < op2; ++i) {
+                        self->V[i] = self->ram[self->I + i];
+                    }
+                    if (!self->superMode) { self->I += op2; }
                     break;
             }
             // Fx75: (IGNORED) Store V0...Vx to RPL user flags (x < 8, Super only)
@@ -258,11 +346,53 @@ void Chip8_advance(Chip8Proc *self) {
 
     // Throw error if invalid instruction
     if (!validInst) {
-        fprintf(stderr, "%3X - Aborting - Invalid opcode %2X%2X\n",
-                self->PC, self->ram[self->PC], self->ram[self->PC + 1]);
+        fprintf(stderr, "%03X - Aborting - Invalid opcode %02X%02X\n",
+                self->PC, op12, op34);
         exit(EXIT_FAILURE);
     }
 
     // Inc PC if neccessary
     if (normInc) { self->PC += 2; }
 }
+
+/*** Font data to be copied into the low ram addresses ***/
+static uint8_t font5[80] = {
+    /* 0 */ 0b11110000, 0b10010000, 0b10010000, 0b10010000, 0b11110000,
+    /* 1 */ 0b00100000, 0b01100000, 0b00100000, 0b00100000, 0b01110000,
+    /* 2 */ 0b11110000, 0b00010000, 0b11110000, 0b10000000, 0b11110000,
+    /* 3 */ 0b11110000, 0b00010000, 0b11110000, 0b00010000, 0b11110000,
+    /* 4 */ 0b10010000, 0b10010000, 0b11110000, 0b00010000, 0b00010000,
+    /* 5 */ 0b11110000, 0b10000000, 0b11110000, 0b00010000, 0b11110000,
+    /* 6 */ 0b11110000, 0b10000000, 0b11110000, 0b10010000, 0b11110000,
+    /* 7 */ 0b11110000, 0b00010000, 0b00100000, 0b01000000, 0b01000000,
+    /* 8 */ 0b11110000, 0b10010000, 0b11110000, 0b10010000, 0b11110000,
+    /* 9 */ 0b11110000, 0b10010000, 0b11110000, 0b00010000, 0b11110000,
+    /* A */ 0b11110000, 0b10010000, 0b11110000, 0b10010000, 0b10010000,
+    /* B */ 0b11100000, 0b10010000, 0b11100000, 0b10010000, 0b11100000,
+    /* C */ 0b11110000, 0b10000000, 0b10000000, 0b10000000, 0b11110000,
+    /* D */ 0b11100000, 0b10010000, 0b10010000, 0b10010000, 0b11100000,
+    /* E */ 0b11110000, 0b10000000, 0b11110000, 0b10000000, 0b11110000,
+    /* F */ 0b11110000, 0b10000000, 0b11110000, 0b10000000, 0b10000000
+};
+static uint8_t font10[100] = {
+    /* 0 */ 0b00111100, 0b01111110, 0b11100111, 0b11000011, 0b11000011,
+    0b11000011, 0b11000011, 0b11100111, 0b01111110, 0b00111100,
+    /* 1 */ 0b00011000, 0b00111000, 0b01011000, 0b00011000, 0b00011000,
+    0b00011000, 0b00011000, 0b00011000, 0b00011000, 0b00111100,
+    /* 2 */ 0b00111110, 0b01111111, 0b11000011, 0b00000110, 0b00001100,
+    0b00011000, 0b00110000, 0b01100000, 0b11111111, 0b11111111,
+    /* 3 */ 0b00111100, 0b01111110, 0b11000011, 0b00000011, 0b00001110,
+    0b00001110, 0b00000011, 0b11000011, 0b01111110, 0b00111100,
+    /* 4 */ 0b00000110, 0b00001110, 0b00011110, 0b00110110, 0b01100110,
+    0b11000110, 0b11111111, 0b11111111, 0b00000110, 0b00000110,
+    /* 5 */ 0b11111111, 0b11111111, 0b11000000, 0b11000000, 0b11111100,
+    0b11111110, 0b00000011, 0b11000011, 0b01111110, 0b00111100,
+    /* 6 */ 0b00111110, 0b01111100, 0b11000000, 0b11000000, 0b11111100,
+    0b11111110, 0b11000011, 0b11000011, 0b01111110, 0b00111100,
+    /* 7 */ 0b11111111, 0b11111111, 0b00000011, 0b00000110, 0b00001100,
+    0b00011000, 0b00110000, 0b01100000, 0b01100000, 0b01100000,
+    /* 8 */ 0b00111100, 0b01111110, 0b11000011, 0b11000011, 0b01111110,
+    0b01111110, 0b11000011, 0b11000011, 0b01111110, 0b00111100,
+    /* 9 */ 0b00111100, 0b01111110, 0b11000011, 0b11000011, 0b01111111,
+    0b00111111, 0b00000011, 0b00000011, 0b00111110, 0b01111100
+};

@@ -29,14 +29,14 @@ typedef struct Chip8Proc {
     uint16_t stack[16];
 
     /*** Memory ***/
-    uint8_t *ram;
+    uint8_t ram[4096];
 
     /*** Screen ***/
-    // Each uint64_t is one column
-    uint64_t *screen;
+    // 128x64 bool array (row-major)
+    bool screen[64 * 128];
 
     /*** External Interaction ***/
-    void (*sendScreen)(uint32_t *screen, struct Chip8Proc *self);
+    void (*sendScreen)(bool *screen);
     void (*setSound)(bool isPlaying, struct Chip8Proc *self);
 
     /*** Mode Flag ***/
@@ -46,19 +46,14 @@ typedef struct Chip8Proc {
 } Chip8Proc;
 
 /*
- * Create a new Chip8Proc, copy 4096 bytes from program into the processor's
- * memory, and store the provided funciton pointers for output use
+ * Create a new Chip8Proc, copy program into the processor's memory, and
+ * store the provided funciton pointers for output use
  */
 Chip8Proc Chip8_init(uint8_t *program,
         size_t progSize,
-        void (*sendScreen)(uint32_t *screen, Chip8Proc *self),
+        void (*sendScreen)(bool *screen),
         void (*setSound)(bool isPlaying, Chip8Proc *self),
         bool superMode);
-
-/*
- * Clean up an existing Chip8Proc
- */
-void Chip8_end(Chip8Proc *self);
 
 /*
  * Advance the Chip8 processor by one step.
