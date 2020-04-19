@@ -5,6 +5,7 @@
 #include "Guards.h"
 
 void printScreen(bool *screen);
+void printScreenCompact(bool *screen);
 
 int main() {
     uint8_t maze[38] = { // Maze (alt) [David Winter, 199x]
@@ -48,7 +49,7 @@ int main() {
 
     Chip8Proc *proc = malloc(sizeof(Chip8Proc));
     OOM_GUARD(proc, __FILE__, __LINE__);
-    *proc = Chip8_init(maze, 38, printScreen, NULL, false);
+    *proc = Chip8_init(maze, 38, printScreenCompact, NULL, false);
 
     for (int i = 0; i < 5000; ++i) {
         // printf("PC: %03X\n", proc->PC);
@@ -71,6 +72,38 @@ void printScreen(bool *screen) {
         putchar('|');
         for (int c = 0; c < 128; ++c) {
             putchar(screen[r * 128 + c] ? '#' : ' ');
+        }
+        putchar('|');
+        putchar('\n');
+    }
+    putchar('+');
+    for (int i = 0; i < 128; ++i) { putchar('-'); }
+    putchar('+');
+    putchar('\n');
+}
+
+void printScreenCompact(bool *screen) {
+    putchar('+');
+    for (int i = 0; i < 128; ++i) { putchar('-'); }
+    putchar('+');
+    putchar('\n');
+    for (int r = 0; r < 64; r += 2) {
+        putchar('|');
+        for (int c = 0; c < 128; ++c) {
+            // putchar(screen[r * 128 + c] ? '#' : ' ');
+            if (screen[r * 128 + c]) {
+                if (screen[r * 128 + c]) {
+                    printf("\xE2\x96\x88");
+                } else {
+                    printf("\xE2\x96\x80");
+                }
+            } else {
+                if (screen[(r + 1) * 128 + c ]) {
+                    printf("\xE2\x96\x84");
+                } else {
+                    printf(" ");
+                }
+            }
         }
         putchar('|');
         putchar('\n');

@@ -234,6 +234,7 @@ void Chip8_advance(Chip8Proc *self) {
                 // TODO Dxy0
             } else { // Dxyn: Draw n-row sprite from ram(I) at (Vx, Vy)
                 // Vf is set to 1 if there is a collision, 0 otherwise
+                // TODO: no wrapping in superMode
                 self->V[0xF] = false;
                 validInst = true;
                 int x0 = self->V[op2], y0 = self->V[op3];
