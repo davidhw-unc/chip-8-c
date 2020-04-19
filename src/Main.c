@@ -43,18 +43,20 @@ int main() {
         0x31, 0x1F,
         // Go back to the fetch sprite instruction
         0x12, 0x06,
-        // Loop forever
-        0x12, 0x1A,
+        // Test scrolling
+        0x00, 0xFC,
+        0x00, 0xFC,
+        0x00, 0xFB,
+        0x00, 0xCc,
+        // Exit
+        0x00, 0xFD
     };
 
     Chip8Proc *proc = malloc(sizeof(Chip8Proc));
     OOM_GUARD(proc, __FILE__, __LINE__);
-    *proc = Chip8_init(maze, 38, printScreenCompact, NULL, false);
+    *proc = Chip8_init(writeText, 38, printScreenCompact, NULL, false);
 
-    for (int i = 0; i < 5000; ++i) {
-        // printf("PC: %03X\n", proc->PC);
-        Chip8_advance(proc);
-    }
+    while (Chip8_advance(proc));
     printf("Done.\n");
 
     // Cleanup

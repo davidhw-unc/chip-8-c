@@ -36,7 +36,7 @@ Chip8Proc Chip8_init(uint8_t *program,
     return proc;
 }
 
-void Chip8_advance(Chip8Proc *self) {
+bool Chip8_advance(Chip8Proc *self) {
 
     // NOTE: see https://github.com/Chromatophore/HP48-Superchip for
     // differences between CHIP-8 and SUPERCHIP-48
@@ -58,8 +58,21 @@ void Chip8_advance(Chip8Proc *self) {
                 break;
             }
             if (op3 == 0xC) { // 00Cn: Scroll display n lines down
-                // validInst = true;
-                // TODO 00Cn
+                validInst = true;
+                if (!self->largeScreen && op4 % 2 != 0) {
+                    fprintf(stderr, "%03X - Aborting - Attempted to scroll "
+                            "by an odd number of pixels in lores mode\n",
+                            self->PC);
+                    exit(EXIT_FAILURE);
+                }
+                // Move data
+                memmove(self->screen + op4 * 128,
+                        self->screen,
+                        128 * (64 - op4));
+                // Clear moved space
+                memset(self->screen, 0, op4 * 128);
+                // Send new framebuffer
+                self->sendScreen(self->screen);
                 break;
             }
             switch (op34) {
@@ -83,16 +96,31 @@ void Chip8_advance(Chip8Proc *self) {
                     }
                     break;
                 case 0xFB: // 00FB: Scroll 4 small pixels right
-                    // validInst = true;
-                    // TODO 00FB
+                    validInst = true;
+                    // Scroll each line
+                    for (int r = 0; r < 64; ++r) {
+                        memmove(self->screen + 128 * r + 4,
+                                self->screen + 128 * r,
+                                124);
+                        memset(self->screen + 128 * r, 0, 4);
+                    }
+                    // Send new framebuffer
+                    self->sendScreen(self->screen);
                     break;
                 case 0xFC: // 00FC: Scroll 4 small pixels left
-                    // validInst = true;
-                    // TODO 00FC
+                    validInst = true;
+                    // Scroll each line
+                    for (int r = 0; r < 64; ++r) {
+                        memmove(self->screen + 128 * r,
+                                self->screen + 128 * r + 4,
+                                124);
+                        memset(self->screen + 128 * r + 124, 0, 4);
+                    }
+                    // Send new framebuffer
+                    self->sendScreen(self->screen);
                     break;
                 case 0xFD: // 00FD: Exit interpreter
-                    // validInst = true;
-                    // TODO 00FD
+                    return false;
                     break;
                 case 0xFE: // 00FE: Switch to lores
                     validInst = true;
@@ -339,9 +367,29 @@ void Chip8_advance(Chip8Proc *self) {
                     }
                     if (!self->superMode) { self->I += op2; }
                     break;
+                case 0x75: // Fx75: Store V0...Vx to flag registers (x < 8, Super only)
+                    validInst = true;
+                    if (op2 > 7) {
+                        fprintf(stderr, "%03X - Aborting - Fx75 can only store up to V7\n",
+                                self->PC);
+                        exit(EXIT_FAILURE);
+                    }
+                    for (int i = 0; i < op2; ++i) {
+                        self->V[i] = self->FR[i];
+                    }
+                    break;
+                case 0x85: // Fx85: Read V0...Vx from flag registers (x < 8, Super only)
+                    validInst = true;
+                    if (op2 > 7) {
+                        fprintf(stderr, "%03X - Aborting - Fx85 can only read up to V7\n",
+                                self->PC);
+                        exit(EXIT_FAILURE);
+                    }
+                    for (int i = 0; i < op2; ++i) {
+                        self->V[i] = self->FR[i];
+                    }
+                    break;
             }
-            // Fx75: (IGNORED) Store V0...Vx to RPL user flags (x < 8, Super only)
-            // Fx85: (IGNORED) Read V0...Vx from RPL user flags (x < 8, Super only)
             break;
     }
 
@@ -354,6 +402,9 @@ void Chip8_advance(Chip8Proc *self) {
 
     // Inc PC if neccessary
     if (normInc) { self->PC += 2; }
+
+    // Return true to indicate processor is still running
+    return true;
 }
 
 /*** Font data to be copied into the low ram addresses ***/
