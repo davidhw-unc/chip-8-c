@@ -9,6 +9,7 @@
 #define FONT_10_START 0x080
 #define PROG_START    0x200
 
+static bool Chip8_drawByte_LS(Chip8Proc *self, int row, int col, uint8_t data);
 static uint8_t font5[80], font10[100];
 
 Chip8Proc Chip8_init(uint8_t *program,
@@ -121,14 +122,13 @@ bool Chip8_advance(Chip8Proc *self) {
                     break;
                 case 0xFD: // 00FD: Exit interpreter
                     return false;
-                    break;
                 case 0xFE: // 00FE: Switch to lores
                     validInst = true;
-                    self->largeScreen = true;
+                    self->largeScreen = false;
                     break;
                 case 0xFF: // 00FF: Switch to hires
                     validInst = true;
-                    self->largeScreen = false;
+                    self->largeScreen = true;
                     break;
             }
             break;
@@ -256,24 +256,37 @@ bool Chip8_advance(Chip8Proc *self) {
             self->V[op2] = rand() & op34;
             break;
         case 0xD:
-            if (op4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
+            ; // Empty expression required cuz labels are stupid in C
+            int x0 = self->V[op2], y0 = self->V[op3];
+            if (op4 == 0x0) { // Dxy0: 16x16 draw in largeScreen, draw nothing otherwise
                 // Does NOT replicate Super collision line count
-                // validInst = true;
-                // TODO Dxy0
-            } else { // Dxyn: Draw n-row sprite from ram(I) at (Vx, Vy)
                 // Vf is set to 1 if there is a collision, 0 otherwise
-                // TODO: no wrapping in superMode
                 self->V[0xF] = false;
                 validInst = true;
-                int x0 = self->V[op2], y0 = self->V[op3];
+                if (self->largeScreen) {
+                    for (int i = 0; i < 16; ++i) {
+                        if (Chip8_drawByte_LS(self, y0 + i, x0,
+                                    self->ram[self->I + 2 * i])
+                                || Chip8_drawByte_LS(self, y0 + i, x0 + 8,
+                                    self->ram[self->I + 2 * i + 1])) {
+                            self->V[0xF] = true;
+                        }
+                    }
+                } else {
+                    break;
+                }
+            } else { // Dxyn: Draw n-row sprite from ram(I) at (Vx, Vy)
+                // Vf is set to 1 if there is a collision, 0 otherwise
+                self->V[0xF] = false;
+                validInst = true;
                 for (uint8_t r = 0; r < op4; ++r) {
-                    uint8_t mask = 0x80, rowVal = self->ram[self->I + r];
-                    for (uint8_t c = 0; c < 8; ++c, mask >>= 1) {
-                        if (rowVal & mask) {
-                            if (self->largeScreen) {
-                                // Does NOT replicate Super collision line count
-                                // TODO draw in largeScreen mode
-                            } else {
+                    uint8_t rowVal = self->ram[self->I + r];
+                    if (self->largeScreen) {
+                        Chip8_drawByte_LS(self, r + y0, x0, rowVal);
+                    } else {
+                        uint8_t mask = 0x80;
+                        for (uint8_t c = 0; c < 8; ++c, mask >>= 1) {
+                            if (rowVal & mask) {
                                 int row = 2 * (r + y0) % 64,
                                     col = 2 * (c + x0) % 128;
                                 bool curState = self->screen[row * 128 + col];
@@ -405,6 +418,18 @@ bool Chip8_advance(Chip8Proc *self) {
 
     // Return true to indicate processor is still running
     return true;
+}
+
+static bool Chip8_drawByte_LS(Chip8Proc *self, int row, int col, uint8_t data) {
+    bool anyInverts = false;
+    for (uint8_t mask = 0x80; mask != 0; mask >>= 1, col++) {
+        if (data & mask) {
+            bool *pixel = &self->screen[128 * (row % 64) + (col % 128)];
+            *pixel = !*pixel;
+            if (!*pixel) { anyInverts = true; }
+        }
+    }
+    return anyInverts;
 }
 
 /*** Font data to be copied into the low ram addresses ***/
