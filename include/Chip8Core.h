@@ -5,8 +5,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define SOUND_FREQ 200
-
 typedef struct Chip8Proc {
 
     /*** Registers ***/
@@ -17,6 +15,8 @@ typedef struct Chip8Proc {
     // Special 8-bit registers for the delay & sound timers
     // When != 0; these decrease at 60Hz
     uint8_t D, S;
+    // Flag registers (extra registers from Super)
+    uint8_t FR[8];
 
     /*** Pseudo-Registers (Inaccessible Registers) ***/
     // Program counter
@@ -58,8 +58,9 @@ Chip8Proc Chip8_init(uint8_t *program,
 /*
  * Advance the Chip8 processor by one step.
  * Does not decrement timers.
+ * Returns false if the processor has exited (00FD), true otherwise.
  */
-void Chip8_advance(Chip8Proc *self);
+bool Chip8_advance(Chip8Proc *self);
 
 /*
  * Run the Chip8 processor

@@ -9,6 +9,7 @@
 #define FONT_10_START 0x080
 #define PROG_START    0x200
 
+static bool Chip8_drawByte_LS(Chip8Proc *self, int row, int col, uint8_t data);
 static uint8_t font5[80], font10[100];
 
 Chip8Proc Chip8_init(uint8_t *program,
@@ -36,7 +37,7 @@ Chip8Proc Chip8_init(uint8_t *program,
     return proc;
 }
 
-void Chip8_advance(Chip8Proc *self) {
+bool Chip8_advance(Chip8Proc *self) {
 
     // NOTE: see https://github.com/Chromatophore/HP48-Superchip for
     // differences between CHIP-8 and SUPERCHIP-48
@@ -58,8 +59,21 @@ void Chip8_advance(Chip8Proc *self) {
                 break;
             }
             if (op3 == 0xC) { // 00Cn: Scroll display n lines down
-                // validInst = true;
-                // TODO 00Cn
+                validInst = true;
+                if (!self->largeScreen && op4 % 2 != 0) {
+                    fprintf(stderr, "%03X - Aborting - Attempted to scroll "
+                            "by an odd number of pixels in lores mode\n",
+                            self->PC);
+                    exit(EXIT_FAILURE);
+                }
+                // Move data
+                memmove(self->screen + op4 * 128,
+                        self->screen,
+                        128 * (64 - op4));
+                // Clear moved space
+                memset(self->screen, 0, op4 * 128);
+                // Send new framebuffer
+                self->sendScreen(self->screen);
                 break;
             }
             switch (op34) {
@@ -83,24 +97,38 @@ void Chip8_advance(Chip8Proc *self) {
                     }
                     break;
                 case 0xFB: // 00FB: Scroll 4 small pixels right
-                    // validInst = true;
-                    // TODO 00FB
+                    validInst = true;
+                    // Scroll each line
+                    for (int r = 0; r < 64; ++r) {
+                        memmove(self->screen + 128 * r + 4,
+                                self->screen + 128 * r,
+                                124);
+                        memset(self->screen + 128 * r, 0, 4);
+                    }
+                    // Send new framebuffer
+                    self->sendScreen(self->screen);
                     break;
                 case 0xFC: // 00FC: Scroll 4 small pixels left
-                    // validInst = true;
-                    // TODO 00FC
+                    validInst = true;
+                    // Scroll each line
+                    for (int r = 0; r < 64; ++r) {
+                        memmove(self->screen + 128 * r,
+                                self->screen + 128 * r + 4,
+                                124);
+                        memset(self->screen + 128 * r + 124, 0, 4);
+                    }
+                    // Send new framebuffer
+                    self->sendScreen(self->screen);
                     break;
                 case 0xFD: // 00FD: Exit interpreter
-                    // validInst = true;
-                    // TODO 00FD
-                    break;
+                    return false;
                 case 0xFE: // 00FE: Switch to lores
                     validInst = true;
-                    self->largeScreen = true;
+                    self->largeScreen = false;
                     break;
                 case 0xFF: // 00FF: Switch to hires
                     validInst = true;
-                    self->largeScreen = false;
+                    self->largeScreen = true;
                     break;
             }
             break;
@@ -228,24 +256,37 @@ void Chip8_advance(Chip8Proc *self) {
             self->V[op2] = rand() & op34;
             break;
         case 0xD:
-            if (op4 == 0x0) { // Dxy0: 16-bit draw in Super, draw nothing otherwise
+            ; // Empty expression required cuz labels are stupid in C
+            int x0 = self->V[op2], y0 = self->V[op3];
+            if (op4 == 0x0) { // Dxy0: 16x16 draw in largeScreen, draw nothing otherwise
                 // Does NOT replicate Super collision line count
-                // validInst = true;
-                // TODO Dxy0
-            } else { // Dxyn: Draw n-row sprite from ram(I) at (Vx, Vy)
                 // Vf is set to 1 if there is a collision, 0 otherwise
-                // TODO: no wrapping in superMode
                 self->V[0xF] = false;
                 validInst = true;
-                int x0 = self->V[op2], y0 = self->V[op3];
+                if (self->largeScreen) {
+                    for (int i = 0; i < 16; ++i) {
+                        if (Chip8_drawByte_LS(self, y0 + i, x0,
+                                    self->ram[self->I + 2 * i])
+                                || Chip8_drawByte_LS(self, y0 + i, x0 + 8,
+                                    self->ram[self->I + 2 * i + 1])) {
+                            self->V[0xF] = true;
+                        }
+                    }
+                } else {
+                    break;
+                }
+            } else { // Dxyn: Draw n-row sprite from ram(I) at (Vx, Vy)
+                // Vf is set to 1 if there is a collision, 0 otherwise
+                self->V[0xF] = false;
+                validInst = true;
                 for (uint8_t r = 0; r < op4; ++r) {
-                    uint8_t mask = 0x80, rowVal = self->ram[self->I + r];
-                    for (uint8_t c = 0; c < 8; ++c, mask >>= 1) {
-                        if (rowVal & mask) {
-                            if (self->largeScreen) {
-                                // Does NOT replicate Super collision line count
-                                // TODO draw in largeScreen mode
-                            } else {
+                    uint8_t rowVal = self->ram[self->I + r];
+                    if (self->largeScreen) {
+                        Chip8_drawByte_LS(self, r + y0, x0, rowVal);
+                    } else {
+                        uint8_t mask = 0x80;
+                        for (uint8_t c = 0; c < 8; ++c, mask >>= 1) {
+                            if (rowVal & mask) {
                                 int row = 2 * (r + y0) % 64,
                                     col = 2 * (c + x0) % 128;
                                 bool curState = self->screen[row * 128 + col];
@@ -339,9 +380,29 @@ void Chip8_advance(Chip8Proc *self) {
                     }
                     if (!self->superMode) { self->I += op2; }
                     break;
+                case 0x75: // Fx75: Store V0...Vx to flag registers (x < 8, Super only)
+                    validInst = true;
+                    if (op2 > 7) {
+                        fprintf(stderr, "%03X - Aborting - Fx75 can only store up to V7\n",
+                                self->PC);
+                        exit(EXIT_FAILURE);
+                    }
+                    for (int i = 0; i < op2; ++i) {
+                        self->V[i] = self->FR[i];
+                    }
+                    break;
+                case 0x85: // Fx85: Read V0...Vx from flag registers (x < 8, Super only)
+                    validInst = true;
+                    if (op2 > 7) {
+                        fprintf(stderr, "%03X - Aborting - Fx85 can only read up to V7\n",
+                                self->PC);
+                        exit(EXIT_FAILURE);
+                    }
+                    for (int i = 0; i < op2; ++i) {
+                        self->V[i] = self->FR[i];
+                    }
+                    break;
             }
-            // Fx75: (IGNORED) Store V0...Vx to RPL user flags (x < 8, Super only)
-            // Fx85: (IGNORED) Read V0...Vx from RPL user flags (x < 8, Super only)
             break;
     }
 
@@ -354,6 +415,21 @@ void Chip8_advance(Chip8Proc *self) {
 
     // Inc PC if neccessary
     if (normInc) { self->PC += 2; }
+
+    // Return true to indicate processor is still running
+    return true;
+}
+
+static bool Chip8_drawByte_LS(Chip8Proc *self, int row, int col, uint8_t data) {
+    bool anyInverts = false;
+    for (uint8_t mask = 0x80; mask != 0; mask >>= 1, col++) {
+        if (data & mask) {
+            bool *pixel = &self->screen[128 * (row % 64) + (col % 128)];
+            *pixel = !*pixel;
+            if (!*pixel) { anyInverts = true; }
+        }
+    }
+    return anyInverts;
 }
 
 /*** Font data to be copied into the low ram addresses ***/
